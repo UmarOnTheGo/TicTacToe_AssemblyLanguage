@@ -1,0 +1,634 @@
+include Irvine32.inc
+    
+.data
+board BYTE " 1      |2      |3      ",10,13,
+           "        |       |       ",10,13,
+           "        |       |       ",10,13,
+           " -------+-------+-------",10,13, 
+           " 4      |5      |6      ",10,13,
+           "        |       |       ",10,13,
+           "        |       |       ",10,13,
+           " -------+-------+-------",10,13,
+           " 7      |8      |9      ",10,13, 
+           "        |       |       ",10,13,
+           "        |       |       ",10,13,0
+currentPlayer    BYTE 'X'
+playerChoice     DWORD ?
+winner           DWORD 0
+playerXwins      DWORD 0
+playerOwins      DWORD 0
+drawCount        DWORD 0
+cellOffsets      DWORD 30, 38, 46, 134, 142, 150, 238, 246, 254
+playAgainIn      BYTE 2 DUP (?)
+TTTIntro         BYTE "Welcome to the Ultimate Tic Tac Toe Showdown!",0
+TTTPlayAgain     BYTE "Another round? (y/n): ",0
+TTTOutro         BYTE "Hope you had fun! See you next time!",0
+TTTturnIndicator BYTE "'s move! Pick your square wisely: ",0
+TTTInvalidChoice BYTE "Oops! That spot's taken or invalid. Try again: ",0
+TTTDraw          BYTE "It's a tie! Well played, both of you!",0
+TTTWins          BYTE " emerges victorious! Celebration time!",0
+TTTWinCount        BYTE " Total Wins: ",0
+TTTDrawCount     BYTE "Games Drawn: ",0
+TTTBorderTop     BYTE "+-------------------------------------------+",0
+TTTBorderBottom  BYTE "+-------------------------------------------+",0
+TTTDeveloperName db   "Game Developers: Naveed Ahmed, Hafiz Umer, Azan Shah.", 0
+TTTDescription   db   "Description: This is a Tic-Tac-Toe game developed to demonstrate assembly programming.", 0
+
+
+.code
+
+;******************************************************
+; Main Function
+;******************************************************
+
+main PROC
+
+     call printIntro
+
+Play:  
+
+     push OFFSET board
+     call clearBoard
+     
+     ; Print Board
+     push OFFSET board
+     call printBoard
+
+   
+L1:   
+     ; prompt player to choose square
+     mov al,currentPlayer          ; move currentPlayer (X or O) into al
+     push eax                      ; push currentPlayer (in al) to stack
+     push OFFSET board             ; push address of board to stack
+     call chooseSquare
+     
+     ; print board after move
+     push OFFSET board
+     call printBoard
+
+     ; check if game over    
+     push OFFSET winner            ; push address of winner to stack
+     mov al,currentPlayer          ; move currentPlayer (X or O) into al
+     push eax                      ; push currentPlayer (in al) to stack
+     push OFFSET board             ; push address of board to stack
+     call checkWinner
+     mov eax,winner
+     cmp eax,1                     ; if winner/eax is 1, game is over
+     je Win
+     cmp eax,2
+     je draw
+
+     ; switch to other player
+     push OFFSET currentPlayer     ; push address of currentPlayer to stack
+     call switchPlayer
+     jmp L1
+
+Win:
+     push OFFSET drawCount
+     push OFFSET playerOwins
+     push OFFSET playerXwins
+     mov al,currentPlayer          ; move currentPlayer (X or O) into al
+     push eax                      ; push currentPlayer (in al) to stack
+     call processWinner
+     jmp PlayAgain
+
+draw:
+     push OFFSET drawCount
+     push OFFSET playerOwins
+     push OFFSET playerXwins
+     call processdraw
+     jmp PlayAgain
+     
+PlayAgain:
+     ; prompt for another game
+     mov edx,OFFSET TTTPlayAgain
+     call WriteString
+     mov edx,OFFSET playAgainIn
+     mov ecx,2
+     call ReadString
+     mov al,playAgainIn
+     cmp al,'y'
+     je Play
+     cmp al,'n'
+     je Finish
+     
+Finish: 
+     ; End Game
+     call EndGame
+     
+     ; pause before closing window
+     call WaitMsg
+	
+     exit
+main ENDP
+
+;**********************
+; Home Screen Display 
+;**********************
+
+printIntro PROC
+
+    mov edx, OFFSET TTTBorderTop
+    call WriteString
+    call Crlf
+
+
+    mov edx, OFFSET TTTIntro
+    call WriteString
+    call Crlf
+
+
+    mov edx, OFFSET TTTBorderBottom
+    call WriteString
+    call Crlf
+    call Crlf
+
+
+    mov edx, OFFSET TTTDeveloperName
+    call WriteString
+    call Crlf
+    call Crlf
+
+    mov edx, OFFSET TTTDescription
+    call WriteString
+    call Crlf
+    call Crlf
+    call Crlf
+    ret
+printIntro ENDP
+
+;******************************************************
+;    Receives: [ebp + 8] = address of board
+;    Returns:  nothing
+;******************************************************
+
+clearBoard PROC
+    ; prepare stack frame
+     push ebp
+     mov  ebp,esp
+     pushad
+
+     ; clear board squares
+     mov esi,[ebp + 8]        ; move address of board into esi
+     mov bl,' '
+     mov [esi + 30],bl
+     mov [esi + 38],bl
+     mov [esi + 46],bl
+     mov [esi + 134],bl
+     mov [esi + 142],bl
+     mov [esi + 150],bl
+     mov [esi + 238],bl
+     mov [esi + 246],bl
+     mov [esi + 254],bl
+
+     ; clean up stack frame
+     popad
+     pop  ebp
+     ret  4
+clearBoard ENDP
+
+;******************************************************
+;    Prints board.
+;    Receives: [ebp + 8] = address of board
+;    Returns:  nothing
+;******************************************************
+
+printBoard PROC
+    ; prepare stack frame
+     push ebp
+     mov  ebp,esp
+     pushad
+
+     ; print board
+     mov edx,[ebp + 8]
+     call WriteString
+
+     ; clean up stack frame
+     popad
+     pop  ebp
+     ret  4
+printBoard ENDP
+
+;***************************************************************************************
+; Prompts player to choose a location on board to place an X or O. Validates input and
+; will only accept a number between 1 and 9. Cells to place at are as follows:
+; 1 = 30, 2 = 38, 3 = 46, 4 = 134, 5 = 142, 6 = 150, 7 = 238, 8 = 246, 9 = 254
+;    Receives: [ebp +  8] = address of board
+;              [ebp + 12] = currentPlayer
+;    Returns:  nothing
+;****************************************************************************************
+
+chooseSquare PROC
+
+    push ebp
+    mov  ebp, esp
+    pushad
+
+    mov  eax, [ebp + 12]       ; currentPlayer
+    call WriteChar
+    mov  edx, OFFSET TTTturnIndicator
+    call WriteString
+
+Validate:
+    call ReadDec               ; read player's choice
+    mov  playerChoice, eax
+    cmp  playerChoice, 9
+    ja   Invalid               ; invalid if > 9
+    cmp  playerChoice, 1
+    jb   Invalid               ; invalid if < 1
+
+    ; Calculate offset for the chosen cell
+    mov  esi, [ebp + 8]        ; board address
+    mov  ecx, playerChoice
+    dec  ecx                   ; adjust to zero-based index
+    mov  edx, OFFSET cellOffsets ; table of offsets declared
+    mov  edi, [edx + ecx*4]    ; get offset for the cell
+    add  esi, edi              ; calculate address of the cell
+
+    ; Check if the cell is empty
+    mov  bl, ' '
+    cmp  [esi], bl
+    jne  Invalid               ; if not empty, go to Invalid
+
+    ; Update the cell with the current player's symbol
+    mov  bl, [ebp + 12]        ; currentPlayer
+    mov  [esi], bl             ; update the board cell
+    jmp  Finish
+
+Invalid:
+    mov  edx, OFFSET TTTInvalidChoice
+    call WriteString
+    jmp  Validate              ; ask for input again
+
+Finish:
+    ; clean up stack frame
+    popad
+    pop  ebp
+    ret 8
+chooseSquare ENDP
+
+;**********************************************************************************************************
+; Checks to see if either player has won by looking for Series of 3 X's or O's. This is done by looking at 
+; particular cell in the board array. For example, a series in the first row would mean
+; that cell 30, 38, and 46 would all be either X or O.
+;    Receives: [ebp +  8] = address of board  
+;              [ebp + 12] = currentPlayer
+;              [ebp + 16] = winner
+;    Returns:  0 in winner if no winner found, 1 if winner found, 2 if draw
+;***********************************************************************************************************
+
+checkWinner PROC
+    ; prepare stack frame
+     push ebp
+     mov  ebp,esp
+     pushad
+
+     mov bl,[ebp + 12]        
+     mov edi,[ebp + 16]       
+
+CheckRow1:
+     mov esi,[ebp + 8]        
+     add esi,30               
+     cmp [esi],bl             ; check if cell is the same as currentPlayer
+     jne CheckRow2            ; no winner here, so check next row, column, or diagonal
+     add esi,8                ; increment esi to next cell
+     cmp [esi],bl             ; check if cell is the same as currentPlayer
+     jne CheckRow2            ; no winner here, so check next row, column, or diagonal
+     add esi,8                ; increment esi to next cell
+     cmp [esi],bl             ; check if cell is the same as currentPlayer
+     jne CheckRow2            ; no winner here, so check next row, column, or diagonal
+     jmp WinnerFound          ; if we've made it this far then we have a winner
+
+CheckRow2:
+     mov esi,[ebp + 8]       
+     add esi,134            
+     cmp [esi],bl             
+     jne CheckRow3            
+     add esi,8                
+     cmp [esi],bl             
+     jne CheckRow3          
+     add esi,8               
+     cmp [esi],bl             
+     jne CheckRow3          
+     jmp WinnerFound          
+
+CheckRow3:
+     mov esi,[ebp + 8]        
+     add esi,238              
+     cmp [esi],bl             
+     jne CheckColumn1       
+     add esi,8                
+     cmp [esi],bl            
+     jne CheckColumn1       
+     add esi,8                
+     cmp [esi],bl             
+     jne CheckColumn1         
+     jmp WinnerFound          
+
+CheckColumn1:
+     mov esi,[ebp + 8]        ; move address of board into esi
+     add esi,30               ; increment esi to correct cell
+     cmp [esi],bl             ; check if cell is the same as currentPlayer
+     jne CheckColumn2         ; no winner here, so check next row, column, or diagonal
+     add esi,104              ; increment esi to next cell
+     cmp [esi],bl             ; check if cell is the same as currentPlayer
+     jne CheckColumn2         ; no winner here, so check next row, column, or diagonal
+     add esi,104              ; increment esi to next cell
+     cmp [esi],bl             ; check if cell is the same as currentPlayer
+     jne CheckColumn2         ; no winner here, so check next row, column, or diagonal
+     jmp WinnerFound          ; if we've made it this far then we have a winner
+
+CheckColumn2:
+     mov esi,[ebp + 8]        
+     add esi,38               
+     cmp [esi],bl             
+     jne CheckColumn3         
+     add esi,104              
+     cmp [esi],bl            
+     jne CheckColumn3        
+     add esi,104              
+     cmp [esi],bl             
+     jne CheckColumn3         
+     jmp WinnerFound         
+
+CheckColumn3:
+     mov esi,[ebp + 8]        
+     add esi,46              
+     cmp [esi],bl            
+     jne CheckDiagonal1       
+     add esi,104             
+     cmp [esi],bl             
+     jne CheckDiagonal1       
+     add esi,104             
+     cmp [esi],bl             
+     jne CheckDiagonal1      
+     jmp WinnerFound         
+
+CheckDiagonal1:
+     mov esi,[ebp + 8]        ; move address of board into esi
+     add esi,30               ; increment esi to correct cell
+     cmp [esi],bl             ; check if cell is the same as currentPlayer
+     jne CheckDiagonal2       ; no winner here, so check next row, column, or diagonal
+     add esi,112              ; increment esi to next cell
+     cmp [esi],bl             ; check if cell is the same as currentPlayer
+     jne CheckDiagonal2       ; no winner here, so check next row, column, or diagonal
+     add esi,112              ; increment esi to next cell
+     cmp [esi],bl             ; check if cell is the same as currentPlayer
+     jne CheckDiagonal2       ; no winner here, so check next row, column, or diagonal
+     jmp WinnerFound          ; if we've made it this far then we have a winner
+
+CheckDiagonal2:
+     mov esi,[ebp + 8]        
+     add esi,46              
+     cmp [esi],bl             
+     jne Checkdraw            
+     add esi,96               
+     cmp [esi],bl           
+     jne Checkdraw           
+     add esi,96               
+     cmp [esi],bl             
+     jne Checkdraw          
+     jmp WinnerFound          
+
+Checkdraw:
+     mov esi,[ebp + 8]        ; move address of board into esi
+     mov bl,' '
+     cmp [esi + 30],bl        ; check if cell is empty
+     je NoWinnerFound         ; cell is empty, so can't be draw
+     cmp [esi + 38],bl
+     je NoWinnerFound
+     cmp [esi + 46],bl
+     je NoWinnerFound
+     cmp [esi + 134],bl
+     je NoWinnerFound
+     cmp [esi + 142],bl
+     je NoWinnerFound
+     cmp [esi + 150],bl
+     je NoWinnerFound
+     cmp [esi + 238],bl
+     je NoWinnerFound
+     cmp [esi + 246],bl
+     je NoWinnerFound
+
+
+     cmp [esi + 254],bl
+     je NoWinnerFound
+     jmp drawFound
+
+NoWinnerFound:
+     mov edx,0
+     mov [edi],edx
+     jmp Finish
+
+WinnerFound:
+     mov edx,1
+     mov [edi],edx
+     jmp Finish
+
+drawFound:
+     mov edx,2
+     mov [edi],edx
+     jmp Finish
+
+Finish:
+     ; clean up stack frame
+     popad
+     pop  ebp
+     ret 12
+checkWinner ENDP
+
+;******************************************************
+;   Prints winner and increments that player's score.
+;   Receives: [ebp +  8] = currentPlayer
+;              [ebp + 12] = address of playerXwins
+;              [ebp + 16] = address of playerOwins
+;              [ebp + 20] = address of drawCount
+;   Returns:  nothing
+;******************************************************
+
+processWinner PROC
+    ; prepare stack frame
+     push ebp
+     mov  ebp,esp
+     pushad
+
+     ; process arguments
+     mov eax,[ebp + 8]
+     mov esi,[ebp + 12]           
+     mov edi,[ebp + 16]           
+
+     ; print winner
+     call WriteChar
+     mov edx,OFFSET TTTWins
+     call WriteString
+     call Crlf
+
+     ; increment wins
+     cmp al,'X'
+     je IncrementXwins
+     cmp al,'O'
+     je IncrementOwins
+
+IncrementXwins:
+     mov ebx,[esi]
+     inc ebx
+     mov [esi],ebx
+     jmp PrintScores
+
+IncrementOwins:
+     mov ebx,[edi]
+     inc ebx
+     mov [edi],ebx
+     jmp PrintScores
+
+     ; print scores
+PrintScores:
+     mov esi,[ebp + 12]             ; move address of playerXwins into esi
+     mov al,'X'
+     call WriteChar
+     mov edx,OFFSET TTTWinCount
+     call WriteString
+     mov eax,[esi]
+     call WriteDec
+     call Crlf
+
+     mov esi,[ebp + 16]            ; move address of playerOwins into esi
+     mov al,'O'
+     call WriteChar
+     mov edx,OFFSET TTTWinCount
+     call WriteString
+     mov eax,[esi]
+     call WriteDec
+     call Crlf
+
+     mov esi,[ebp + 20]            ; move address of drawCount into esi
+     mov edx,OFFSET TTTdrawCount
+     call WriteString
+     mov eax,[esi]
+     call WriteDec
+     call Crlf
+
+     popad
+     pop  ebp
+     ret 16
+processWinner ENDP
+
+;******************************************************
+; Prints draw and increments drawCount.
+;    Receives: [ebp +  8] = address of playerXwins
+;              [ebp + 12] = address of playerOwins
+;              [ebp + 16] = address of drawCount
+;    Returns:  nothing
+;******************************************************
+
+processdraw PROC
+
+    push ebp
+    mov ebp, esp
+
+    ; print "draw!" message
+    mov edx, OFFSET TTTDraw
+    call WriteString
+    call Crlf
+
+    ; increment draw count
+    mov esi, [ebp + 16]    ; Address of drawCount
+    inc dword ptr [esi]    ; Increment drawCount directly
+
+    ; print player X score
+    mov esi, [ebp + 8]     ; Address of playerXwins
+    mov al, 'X'            ; Set character 'X'
+    call WriteChar
+    mov edx, OFFSET TTTWinCount
+    call WriteString
+    mov eax, [esi]         ; Load playerXwins count
+    call WriteDec
+    call Crlf
+
+    ; print player O score
+    mov esi, [ebp + 12]    ; Address of playerOwins
+    mov al, 'O'            ; Set character 'O'
+    call WriteChar
+    mov edx, OFFSET TTTWinCount
+    call WriteString
+    mov eax, [esi]         ; Load playerOwins count
+    call WriteDec
+    call Crlf
+
+    ; print draw count
+    mov esi, [ebp + 16]    ; Address of drawCount
+    mov edx, OFFSET TTTdrawCount
+    call WriteString
+    mov eax, [esi]         ; Load drawCount
+    call WriteDec
+    call Crlf
+
+    pop ebp
+    ret 12
+processdraw ENDP
+
+;******************************************************
+; Switches an X to an O or an O to an X.
+;    Receives: [ebp + 8] = address of currentPlayer  
+;    Returns:  nothing
+;******************************************************
+
+switchPlayer PROC
+    ; prepare stack frame
+     push ebp
+     mov  ebp,esp
+     pushad
+
+     ; get currentPlayer char
+     mov esi,[ebp + 8]        ; move address of currentPlayer into esi
+     mov ebx,[esi]            ; move character pointed to by eax to ebx
+
+     ; prepare registers for comparison
+     mov ecx,'X'
+     mov edx,'O'
+
+     ; compare 
+     cmp bl,cl                ; currentPlayer is X so switch to O
+     je XtoO
+     cmp bl,dl                ; currentPlayer is O so switch to X
+     je OtoX
+
+     ; swap currentPlayer
+XtoO:
+     mov bl,dl
+     jmp Finish
+OtoX:
+     mov bl,cl
+     jmp Finish
+     
+Finish:
+     ; move back into currentPlayer via address in esi
+     mov [esi],bl
+
+     ; clean up stack frame
+     popad
+     pop  ebp
+     ret 4
+switchPlayer ENDP
+
+;***************************
+; Ending Part Of The Game
+;***************************
+
+EndGame PROC
+     ; prepare stack frame
+     push ebp
+     mov  ebp,esp
+     pushad
+
+     mov edx,OFFSET TTTOutro 
+     call WriteString
+     call Crlf
+
+     ; Stack Cleanup
+     popad
+     pop  ebp
+     ret
+EndGame ENDP
+
+END main
